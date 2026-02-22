@@ -3,7 +3,7 @@ import json
 import threading
 import concurrent.futures
 from datetime import datetime
-from typing import Tuple
+from typing import Tuple, List, Optional
 from collections import defaultdict
 from urllib.parse import urlparse
 from openai import OpenAI
@@ -123,7 +123,10 @@ class LLMClient:
             print(f"Memory extraction failed: {e}")
             return None
 
-    def chat(self, message: str, api_url: str | None = None, session_id: str = "default") -> Tuple[str, bool]:
+    def chat(self, message: str, api_url: str | None = None, session_id: str = "default", user_id: str = "default_user", allowed_subjects: Optional[List[str]] = None) -> Tuple[str, bool]:
+        if allowed_subjects is None:
+            allowed_subjects = ["*"]
+            
         # Default url if none provided
         url = api_url if api_url else "http://127.0.0.1:1234/v1"
         
@@ -147,7 +150,7 @@ class LLMClient:
                     history.append({"role": "user", "content": message})
                     
                     # 3. Retrieve recent database memories for injection
-                    recent_memories = self.memory_db.retrieve_recent_memories(session_id, limit=5)
+                    recent_memories = self.memory_db.retrieve_recent_memories(session_id, user_id=user_id, allowed_subjects=allowed_subjects, limit=5)
                     
                     system_prompt_parts = [
                         "You are a helpful AI assistant. You always fulfill the user's requests to the best of your ability.",
@@ -157,7 +160,7 @@ class LLMClient:
                     ]
                     
                     today = datetime.now().strftime("%Y-%m-%d")
-                    daily_events = self.memory_db.get_daily_aggregation(session_id, today, min_importance=3)
+                    daily_events = self.memory_db.get_daily_aggregation(session_id, today, user_id=user_id, allowed_subjects=allowed_subjects, min_importance=3)
                     
                     if daily_events:
                         events_text_parts = []
@@ -211,14 +214,32 @@ class LLMClient:
                 extracted_memory = future_memory.result(timeout=2.0)
                 if extracted_memory:
                     today = datetime.now().strftime("%Y-%m-%d")
-                    mem_id = self.memory_db.store_memory(
-                        session_id=session_id,
-                        content=extracted_memory["content"],
-                        memory_date=today,
-                        subject=extracted_memory["subject"],
-                        importance=extracted_memory["importance"]
-                    )
-                    memory_saved = mem_id is not None
+                    
+                    from settings import load_settings
+                    settings = load_settings(db=self.memory_db)
+                    threshold = settings.get("memory_extraction_threshold", 0.6)
+                    
+                    try:
+                        threshold = max(0.0, min(1.0, float(threshold)))
+                    except (ValueError, TypeError):
+                        threshold = 0.6
+                        
+                    normalized_importance = extracted_memory["importance"] / 5.0
+                    
+                    if normalized_importance >= threshold:
+                        mem_id = self.memory_db.store_memory(
+                            session_id=session_id,
+                            content=extracted_memory["content"],
+                            memory_date=today,
+                            subject=extracted_memory["subject"],
+                            importance=extracted_memory["importance"],
+                            user_id=user_id,
+                            access_mode="private"
+                        )
+                        memory_saved = mem_id is not None
+                    else:
+                        print(f"[Memory Skipped] importance={extracted_memory['importance']} normalized={normalized_importance} threshold={threshold}")
+
             except Exception as e:
                 print(f"Memory processing error: {e}")
                 

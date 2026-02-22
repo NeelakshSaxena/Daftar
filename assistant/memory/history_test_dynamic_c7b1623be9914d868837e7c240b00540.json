@@ -1,0 +1,18 @@
+[
+  {
+    "role": "user",
+    "content": "I got a dog for my birthday."
+  },
+  {
+    "role": "assistant",
+    "content": "```json\n{\"content\": \"Got a dog.\", \"subject\": \"Personal\", \"importance\": 4}\n```"
+  },
+  {
+    "role": "user",
+    "content": "I got a cat for my birthday."
+  },
+  {
+    "role": "assistant",
+    "content": "```json\n{\"content\": \"Got a cat.\", \"subject\": \"Personal\", \"importance\": 4}\n```"
+  }
+]
