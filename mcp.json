@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "Local MCP Adapter": {
+      "command": "g:\\Projects\\MCPs\\Daftar\\venv\\Scripts\\python.exe",
+      "args": [
+        "g:\\Projects\\MCPs\\Daftar\\mcp_adapter.py"
+      ],
+      "env": {}
+    }
+  }
+}
