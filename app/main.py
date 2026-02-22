@@ -5,25 +5,41 @@ from pydantic import BaseModel
 from typing import Union
 import os
 import traceback
-from llm_client import LLMClient
-from logger import system_logger, chat_logger, settings_logger, redact_token
+import uuid
+from app.llm_client import LLMClient
+from app.logger import system_logger, chat_logger, settings_logger, redact_token, request_id_var
 
 app = FastAPI(title="Assistant API")
 
+@app.on_event("startup")
+async def startup_event():
+    system_logger.info({"event_type": "startup", "status": "success", "message": "Application starting up"})
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    system_logger.info({"event_type": "shutdown", "status": "success", "message": "Application shutting down"})
+
 @app.middleware("http")
 async def global_exception_handler(request: Request, call_next):
+    req_id = str(uuid.uuid4())
+    token = request_id_var.set(req_id)
     try:
-        return await call_next(request)
+        response = await call_next(request)
+        return response
     except Exception as e:
         system_logger.error({
             "event_type": "unhandled_exception",
             "endpoint": request.url.path,
             "method": request.method,
             "client_ip": request.client.host if request.client else "unknown",
-            "error": str(e),
+            "status": "failure",
+            "error_type": type(e).__name__,
+            "error_message": str(e),
             "traceback": traceback.format_exc()
         })
         return JSONResponse(status_code=500, content={"error": "Internal Server Error", "message": str(e)})
+    finally:
+        request_id_var.reset(token)
 
 llm_client = LLMClient()
 ALLOWED_SETTINGS = {"memory_extraction_threshold"}
@@ -51,8 +67,9 @@ class SettingUpdateRequest(BaseModel):
     key: str
     value: Union[str, float, int]
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount static files to frontend
+FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend"))
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 @app.get("/health")
 def health_check():
@@ -125,7 +142,7 @@ def update_setting(request: SettingUpdateRequest, http_request: Request, admin_t
         })
         raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed keys: {ALLOWED_SETTINGS}")
         
-    from memory.db import MemoryDB
+    from app.memory.db import MemoryDB
     db = MemoryDB(init_db=False)
     
     # Get old value for logging

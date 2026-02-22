@@ -1,4 +1,7 @@
-from llm_client import LLMClient
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from app.llm_client import LLMClient
 import time
 
 URL = "http://172.17.72.151:1234/v1"

@@ -1,6 +1,8 @@
 import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from datetime import datetime
-from memory.db import MemoryDB
+from app.memory.db import MemoryDB
 
 def test_daily_aggregation():
     print("--- Phase 5: Daily Aggregation Test ---")
@@ -10,12 +12,12 @@ def test_daily_aggregation():
     today = datetime.now().strftime("%Y-%m-%d")
     
     # 1. Store memories with various importances
-    db.store_memory(session_id, "User played tennis", today, "Health", 2)
-    db.store_memory(session_id, "User had a team meeting", today, "Work", 3)
-    db.store_memory(session_id, "User deployed system to production", today, "Work", 5)
+    db.store_memory(session_id=session_id, content="User played tennis", memory_date=today, subject="Health", importance=2)
+    db.store_memory(session_id=session_id, content="User had a team meeting", memory_date=today, subject="Work", importance=3)
+    db.store_memory(session_id=session_id, content="User deployed system to production", memory_date=today, subject="Work", importance=5)
     
     # Store a memory for another day just to be sure it doesn't get aggregated
-    db.store_memory(session_id, "User went to the dentist", "2020-01-01", "Health", 4)
+    db.store_memory(session_id=session_id, content="User went to the dentist", memory_date="2020-01-01", subject="Health", importance=4)
     
     # 2. Get daily aggregation with threshold 3
     agg = db.get_daily_aggregation(session_id, today, min_importance=3)

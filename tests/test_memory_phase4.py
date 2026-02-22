@@ -1,4 +1,7 @@
-from memory.db import MemoryDB
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from app.memory.db import MemoryDB
 import time
 
 def run_tests():
@@ -8,12 +11,12 @@ def run_tests():
     print(f"Running Phase 4 Tests on session {session_id}...\n")
     
     print("--- 1. Store Memory ---")
-    mem_id = db.store_memory(session_id, "I like apples.")
+    mem_id = db.store_memory(session_id, "I like apples.", "2026-02-23", "Personal", 5)
     print(f"Stored memory_id: {mem_id}")
     assert mem_id is not None, "Failed to store memory"
     
     # Store duplicate
-    dup_id = db.store_memory(session_id, "I like apples.")
+    dup_id = db.store_memory(session_id, "I like apples.", "2026-02-23", "Personal", 5)
     print(f"Duplicate store returned: {dup_id}")
     assert dup_id is None, "Should not store duplicate memory"
     
@@ -51,7 +54,7 @@ def run_tests():
         assert versions[2][0] == 3 and versions[2][1] == "I ONLY eat bananas now.", "V3 mismatch"
         
     print("\n--- 7. Edit Non-existent Memory ---")
-    bad_edit = db.edit_memory(999999, "Failure path test")
+    bad_edit = db.edit_memory(999999, "Failure path test", session_id)
     print(f"Bad edit success: {bad_edit}")
     assert bad_edit is False, "Should fail on editing a non-existent memory"
     

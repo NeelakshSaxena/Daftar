@@ -1,11 +1,16 @@
 import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from unittest.mock import patch, MagicMock
-from llm_client import LLMClient
+from app.memory.db import MemoryDB
+from app.memory.manager import MemoryManager
+from app.llm_client import LLMClient
 
 def test_hardened_extraction():
     client = LLMClient()
     
-    with patch('llm_client.OpenAI') as MockOpenAI:
+    with patch('app.llm_client.OpenAI') as MockOpenAI:
         mock_instance = MockOpenAI.return_value
         mock_response = MagicMock()
         mock_instance.chat.completions.create.return_value = mock_response

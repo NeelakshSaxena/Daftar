@@ -3,14 +3,18 @@ import concurrent.futures
 import time
 import uuid
 import sys
-from memory.db import MemoryDB
-from settings import load_settings
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from app.memory.db import MemoryDB
+from app.llm_client import LLMClient
+
 
 def thread_worker(db, index):
     try:
-        # Simulate loading settings in thread
-        settings = load_settings(db=db)
-        threshold = settings.get("memory_extraction_threshold", 0.6)
+        # Grab threshold directly from DB overrides
+        overrides = db.get_all_overrides()
+        threshold = float(overrides.get("memory_extraction_threshold", 0.6))
         
         # Simulate storing memory
         session_id = f"stress_session_{index}"

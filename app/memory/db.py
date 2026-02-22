@@ -2,9 +2,11 @@ import os
 import sqlite3
 from typing import List, Optional
 from datetime import datetime
+from app.logger import memory_logger
 
-MEMORY_DIR = os.path.dirname(__file__)
-DB_PATH = os.path.join(MEMORY_DIR, "memory.db")
+# Point to Daftar/data/database
+DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "database")
+DB_PATH = os.path.join(DB_DIR, "memory.db")
 
 class MemoryDB:
     def __init__(self, init_db: bool = True):
@@ -18,7 +20,7 @@ class MemoryDB:
         return conn
 
     def _init_db(self):
-        os.makedirs(MEMORY_DIR, exist_ok=True)
+        os.makedirs(DB_DIR, exist_ok=True)
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
@@ -158,6 +160,9 @@ class MemoryDB:
         Stores a memory if it doesn't already exist for this session.
         Returns the new memory_id if inserted, None if duplicate or error.
         """
+        import time
+        import hashlib
+        start_time = time.time()
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -183,8 +188,31 @@ class MemoryDB:
                     (memory_id, content, 1)
                 )
                 conn.commit()
+                
+                memory_logger.info({
+                    "event_type": "memory_added",
+                    "status": "success",
+                    "memory_id": memory_id,
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "subject": subject,
+                    "content_hash": hashlib.sha256(content.encode('utf-8')).hexdigest()[:8],
+                    "content_length": len(content),
+                    "importance": importance,
+                    "access_mode": access_mode,
+                    "duration_ms": int((time.time() - start_time) * 1000)
+                })
+                
                 return memory_id
         except Exception as e:
+            memory_logger.error({
+                "event_type": "memory_add_failed",
+                "status": "failure",
+                "session_id": session_id,
+                "user_id": user_id,
+                "error_type": type(e).__name__,
+                "error_message": str(e)
+            })
             print(f"Error storing memory: {e}")
             return None
 
@@ -194,6 +222,9 @@ class MemoryDB:
         Retrieves current max version from DB for safety.
         Returns True on success, False if validation fails or memory not found.
         """
+        import time
+        import hashlib
+        start_time = time.time()
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -219,8 +250,28 @@ class MemoryDB:
                     (memory_id, new_content, new_version)
                 )
                 conn.commit()
+                
+                memory_logger.info({
+                    "event_type": "memory_edited",
+                    "status": "success",
+                    "memory_id": memory_id,
+                    "session_id": session_id or "unknown",
+                    "new_version": new_version,
+                    "content_hash": hashlib.sha256(new_content.encode('utf-8')).hexdigest()[:8],
+                    "content_length": len(new_content),
+                    "duration_ms": int((time.time() - start_time) * 1000)
+                })
+                
                 return True
         except Exception as e:
+            memory_logger.error({
+                "event_type": "memory_edit_failed",
+                "status": "failure",
+                "memory_id": memory_id,
+                "session_id": session_id or "unknown",
+                "error_type": type(e).__name__,
+                "error_message": str(e)
+            })
             print(f"Error editing memory: {e}")
             return False
 

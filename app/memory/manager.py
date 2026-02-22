@@ -1,8 +1,9 @@
 import os
 import json
-from settings import MAX_CHAT_HISTORY
+from app.settings import MAX_CHAT_HISTORY
 
-MEMORY_DIR = os.path.dirname(__file__)
+# Point to Daftar/data/workspace
+MEMORY_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "workspace")
 
 class MemoryManager:
     def __init__(self):

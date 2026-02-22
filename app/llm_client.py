@@ -7,8 +7,9 @@ from typing import Tuple, List, Optional
 from collections import defaultdict
 from urllib.parse import urlparse
 from openai import OpenAI
-from memory.manager import MemoryManager
-from memory.db import MemoryDB
+from app.memory.manager import MemoryManager
+from app.memory.db import MemoryDB
+from app.logger import chat_logger, tool_logger, system_logger
 
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "172.17.72.151"}
 
@@ -132,6 +133,14 @@ class LLMClient:
         
         if not is_allowed_url(url):
             return "Error: The provided API URL is not in the allowed hosts list.", False
+            
+        chat_logger.info({
+            "event_type": "chat_request",
+            "session_id": session_id,
+            "user_id": user_id,
+            "message": message,
+            "allowed_subjects": allowed_subjects
+        })
         
         memory_saved = False
 
@@ -188,16 +197,59 @@ class LLMClient:
                     messages = [{"role": "system", "content": system_prompt}] + history
                     
                     # 4. Call Model
+                    import time
+                    start_time = time.time()
                     client = OpenAI(base_url=url, api_key="lm-studio", timeout=10.0)
                     response = client.chat.completions.create(
                         model="local-model",
                         messages=messages,
                         temperature=0.7,
                     )
-                    raw_content = response.choices[0].message.content
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    
+                    response_message = response.choices[0].message
+                    raw_content = response_message.content or ""
+                    
+                    if hasattr(response_message, "tool_calls") and response_message.tool_calls:
+                        for tool_call in response_message.tool_calls:
+                            try:
+                                args_parsed = json.loads(tool_call.function.arguments)
+                                args_summary = {
+                                    "fields": list(args_parsed.keys()),
+                                    "content_length": len(tool_call.function.arguments)
+                                }
+                            except Exception:
+                                args_summary = {"content_length": len(tool_call.function.arguments), "parse_error": True}
+                                
+                            tool_name = tool_call.function.name
+                            # Check for system settings tool
+                            if tool_name == "update_setting":
+                                from app.settings import get_settings_schema
+                                import inspect
+                                # Parse args into kwargs
+                                # (Assuming this is where the logic for update_setting would go)
+                            
+                            tool_logger.info({
+                                "event_type": "tool_call",
+                                "status": "success",
+                                "session_id": session_id,
+                                "user_id": user_id,
+                                "tool_name": tool_call.function.name,
+                                "arguments_summary": args_summary
+                            })
                     
                     # 5. Strip reasoning
                     cleaned_content = re.sub(r'<think>.*?</think>', '', raw_content, flags=re.DOTALL).strip()
+                    
+                    chat_logger.info({
+                        "event_type": "chat_response",
+                        "status": "success",
+                        "session_id": session_id,
+                        "user_id": user_id,
+                        "reply_length": len(cleaned_content),
+                        "had_tool_calls": bool(getattr(response_message, "tool_calls", False)),
+                        "duration_ms": duration_ms
+                    })
                     
                     # 6. Append assistant reply
                     history.append({"role": "assistant", "content": cleaned_content})
@@ -207,6 +259,14 @@ class LLMClient:
                     self.memory_manager.save(session_id, history)
                     
                 except Exception as e:
+                    chat_logger.error({
+                        "event_type": "chat_failed",
+                        "status": "failure",
+                        "session_id": session_id,
+                        "user_id": user_id,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e)
+                    })
                     return f"Error connecting to LM Studio at {url}: {str(e)}", False
 
             # Wait for memory extraction to finish now that main loop is done
@@ -215,7 +275,7 @@ class LLMClient:
                 if extracted_memory:
                     today = datetime.now().strftime("%Y-%m-%d")
                     
-                    from settings import load_settings
+                    from app.settings import load_settings
                     settings = load_settings(db=self.memory_db)
                     threshold = settings.get("memory_extraction_threshold", 0.6)
                     

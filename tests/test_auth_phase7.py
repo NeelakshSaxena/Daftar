@@ -1,7 +1,14 @@
+import sys
 import os
-import requests
-from memory.db import MemoryDB
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from fastapi.testclient import TestClient
+from app.main import app
+
+client = TestClient(app)
+from app.memory.db import MemoryDB
 from datetime import datetime
+
+from app.llm_client import LLMClient
 
 API_URL = "http://127.0.0.1:8000/chat"
 
@@ -10,15 +17,15 @@ def test_auth_and_isolation():
 
     # 1. Test missing token
     print("1. Testing missing token...")
-    resp = requests.post(API_URL, json={"message": "Hello"})
+    resp = client.post("/chat", json={"message": "Hello"})
     assert resp.status_code == 401, f"Expected 401, got {resp.status_code}"
     data = resp.json()
     assert data["error"] == "Unauthorized"
 
     # 2. Test invalid token
     print("2. Testing invalid token...")
-    resp = requests.post(
-        API_URL, 
+    resp = client.post(
+        "/chat", 
         json={"message": "Hello"}, 
         headers={"Authorization": "Bearer not-a-real-token"}
     )

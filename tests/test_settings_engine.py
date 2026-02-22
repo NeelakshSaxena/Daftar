@@ -1,10 +1,13 @@
 import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import uuid
 from datetime import datetime
-from memory.db import MemoryDB
-from llm_client import LLMClient
+from app.memory.db import MemoryDB
+from app.memory.manager import MemoryManager
+from app.llm_client import LLMClient
 from unittest.mock import patch, MagicMock
-from settings import load_settings
+
 
 def test_dynamic_threshold():
     client = LLMClient()
@@ -18,7 +21,7 @@ def test_dynamic_threshold():
     mock_response = MagicMock()
     mock_response.choices[0].message.content = '```json\n{"content": "Got a dog.", "subject": "Personal", "importance": 4}\n```'
     
-    with patch('llm_client.OpenAI') as MockOpenAI:
+    with patch('app.llm_client.OpenAI') as MockOpenAI:
         mock_instance = MockOpenAI.return_value
         mock_instance.chat.completions.create.return_value = mock_response
         
@@ -32,7 +35,7 @@ def test_dynamic_threshold():
     mock_response2 = MagicMock()
     mock_response2.choices[0].message.content = '```json\n{"content": "Got a cat.", "subject": "Personal", "importance": 4}\n```'
     
-    with patch('llm_client.OpenAI') as MockOpenAI:
+    with patch('app.llm_client.OpenAI') as MockOpenAI:
         mock_instance = MockOpenAI.return_value
         mock_instance.chat.completions.create.return_value = mock_response2
         

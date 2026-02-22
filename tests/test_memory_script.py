@@ -1,6 +1,8 @@
 import os
 import json
-from memory.manager import MemoryManager
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from app.memory.manager import MemoryManager
 
 print('--- Starting MemoryManager Tests ---')
 m = MemoryManager()

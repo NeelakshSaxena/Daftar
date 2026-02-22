@@ -1,0 +1,50 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0
+rootdir: G:\Projects\MCPs\Daftar
+plugins: anyio-4.12.1
+collected 4 items / 1 error
+
+=================================== ERRORS ====================================
+_________________ ERROR collecting tests/test_auth_phase7.py __________________
+tests\test_auth_phase7.py:5: in <module>
+    from app.main import app
+app\main.py:71: in <module>
+    app.mount("/static", StaticFiles(directory="../frontend"), name="static")
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\staticfiles.py:56: in __init__
+    raise RuntimeError(f"Directory '{directory}' does not exist")
+E   RuntimeError: Directory '../frontend' does not exist
+============================== warnings summary ===============================
+app\main.py:14
+  G:\Projects\MCPs\Daftar\app\main.py:14: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+venv\Lib\site-packages\fastapi\applications.py:4573
+venv\Lib\site-packages\fastapi\applications.py:4573
+  G:\Projects\MCPs\Daftar\venv\Lib\site-packages\fastapi\applications.py:4573: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+app\main.py:18
+  G:\Projects\MCPs\Daftar\app\main.py:18: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/test_auth_phase7.py - RuntimeError: Directory '../frontend' does ...
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+======================== 4 warnings, 1 error in 0.86s =========================
