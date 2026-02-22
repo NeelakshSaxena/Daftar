@@ -1,0 +1,2 @@
+class FilesTool:
+    pass

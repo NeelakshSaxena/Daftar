@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daftar Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <div class="chat-container">
+        <header>
+            <h1>Assistant</h1>
+            <div class="header-controls">
+                <button id="settings-btn" class="icon-btn" title="Settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path
+                            d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path
+                            d="M19.4 15A1.65 1.65 0 0 0 21 13.35V10.65A1.65 1.65 0 0 0 19.4 9H18.83A7.53 7.53 0 0 0 17.5 7.17L17.9 6.77A1.65 1.65 0 0 0 17.9 4.43L16.03 2.56A1.65 1.65 0 0 0 13.69 2.56L13.29 2.96A7.53 7.53 0 0 0 11.46 2.39V1.82A1.65 1.65 0 0 0 9.81 0.17H7.11A1.65 1.65 0 0 0 5.46 1.82V2.39A7.53 7.53 0 0 0 3.63 2.96L3.23 2.56A1.65 1.65 0 0 0 0.89 2.56L-0.98 4.43A1.65 1.65 0 0 0 -0.98 6.77L-0.58 7.17A7.53 7.53 0 0 0 -1.15 9H-1.72A1.65 1.65 0 0 0 -3.37 10.65V13.35A1.65 1.65 0 0 0 -1.72 15H-1.15A7.53 7.53 0 0 0 0.18 16.83L-0.22 17.23A1.65 1.65 0 0 0 -0.22 19.57L1.65 21.44A1.65 1.65 0 0 0 3.99 21.44L4.39 21.04A7.53 7.53 0 0 0 6.22 21.61V22.18A1.65 1.65 0 0 0 7.87 23.83H10.57A1.65 1.65 0 0 0 12.22 22.18V21.61A7.53 7.53 0 0 0 14.05 21.04L14.45 21.44A1.65 1.65 0 0 0 16.79 21.44L18.66 19.57A1.65 1.65 0 0 0 18.66 17.23L18.26 16.83A7.53 7.53 0 0 0 18.83 15H19.4Z"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            transform="translate(3.5, 0.5) scale(0.7)" />
+                    </svg>
+                </button>
+                <div class="status-indicator connected"></div>
+            </div>
+        </header>
+
+        <div class="chat-messages" id="chat-messages">
+            <div class="message assistant">Hello! I'm your assistant. How can I help you today?</div>
+        </div>
+
+        <div id="memory-toast" class="memory-toast hidden">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 6L9 17l-5-5" />
+            </svg>
+            Memory saved
+        </div>
+
+        <div class="input-area">
+            <textarea id="message-input" placeholder="Type your message here..." rows="1"></textarea>
+            <button id="send-btn" class="primary-btn">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                    <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button id="close-settings-btn" class="icon-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="api-url">LM Studio API URL</label>
+                    <input type="text" id="api-url" placeholder="http://127.0.0.1:1234/v1">
+                    <small>Default: http://127.0.0.1:1234/v1</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="save-settings-btn" class="primary-btn">Save</button>
+            </div>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+
+</html>

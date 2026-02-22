@@ -1,0 +1,241 @@
+import os
+import sqlite3
+from typing import List, Optional
+from datetime import datetime
+
+MEMORY_DIR = os.path.dirname(__file__)
+DB_PATH = os.path.join(MEMORY_DIR, "memory.db")
+
+class MemoryDB:
+    def __init__(self):
+        self._init_db()
+
+    def _get_connection(self):
+        conn = sqlite3.connect(DB_PATH)
+        # Enable foreign key support
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
+    def _init_db(self):
+        os.makedirs(MEMORY_DIR, exist_ok=True)
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("PRAGMA table_info(memories)")
+            columns = {row[1] for row in cursor.fetchall()}
+            
+            if not columns:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS memories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT NOT NULL,
+                        memory_date TEXT NOT NULL,
+                        subject TEXT NOT NULL,
+                        importance INTEGER NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS memory_versions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        memory_id INTEGER NOT NULL,
+                        content TEXT NOT NULL,
+                        version INTEGER NOT NULL,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+                        UNIQUE(memory_id, version)
+                    )
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_memory_versions_lookup 
+                    ON memory_versions(memory_id, version DESC)
+                """)
+
+            elif "content" in columns:
+                print("Migrating memories to versioned schema (v3)...")
+                cursor.execute("ALTER TABLE memories RENAME TO old_memories")
+                today = datetime.now().strftime("%Y-%m-%d")
+                
+                cursor.execute("""
+                    CREATE TABLE memories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT NOT NULL,
+                        memory_date TEXT NOT NULL,
+                        subject TEXT NOT NULL,
+                        importance INTEGER NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                cursor.execute("""
+                    CREATE TABLE memory_versions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        memory_id INTEGER NOT NULL,
+                        content TEXT NOT NULL,
+                        version INTEGER NOT NULL,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+                        UNIQUE(memory_id, version)
+                    )
+                """)
+                
+                cursor.execute(f"""
+                    INSERT INTO memories (id, session_id, memory_date, subject, importance, created_at)
+                    SELECT id, session_id, '{today}', 'Legacy', 3, timestamp FROM old_memories
+                """)
+                
+                cursor.execute("""
+                    INSERT INTO memory_versions (memory_id, content, version, timestamp)
+                    SELECT id, content, 1, timestamp FROM old_memories
+                """)
+                
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_memory_versions_lookup 
+                    ON memory_versions(memory_id, version DESC)
+                """)
+                
+                cursor.execute("DROP TABLE old_memories")
+                
+            elif "memory_date" not in columns:
+                print("Migrating memories to v3 schema (adding date, subject, importance)...")
+                today = datetime.now().strftime("%Y-%m-%d")
+                cursor.execute(f"ALTER TABLE memories ADD COLUMN memory_date TEXT NOT NULL DEFAULT '{today}'")
+                cursor.execute("ALTER TABLE memories ADD COLUMN subject TEXT NOT NULL DEFAULT 'Legacy'")
+                cursor.execute("ALTER TABLE memories ADD COLUMN importance INTEGER NOT NULL DEFAULT 3")
+
+            conn.commit()
+
+    def store_memory(self, session_id: str, content: str, memory_date: str, subject: str, importance: int) -> Optional[int]:
+        """
+        Stores a memory if it doesn't already exist for this session.
+        Returns the new memory_id if inserted, None if duplicate or error.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check for duplicates across all active versions for this session
+                cursor.execute("""
+                    SELECT 1 FROM memory_versions mv
+                    JOIN memories m ON m.id = mv.memory_id
+                    WHERE m.session_id = ? AND mv.content = ?
+                """, (session_id, content))
+                
+                if cursor.fetchone():
+                    return None
+                
+                cursor.execute(
+                    "INSERT INTO memories (session_id, memory_date, subject, importance) VALUES (?, ?, ?, ?)",
+                    (session_id, memory_date, subject, importance)
+                )
+                memory_id = cursor.lastrowid
+                
+                cursor.execute(
+                    "INSERT INTO memory_versions (memory_id, content, version) VALUES (?, ?, ?)",
+                    (memory_id, content, 1)
+                )
+                conn.commit()
+                return memory_id
+        except Exception as e:
+            print(f"Error storing memory: {e}")
+            return None
+
+    def edit_memory(self, memory_id: int, new_content: str, session_id: Optional[str] = None) -> bool:
+        """
+        Edits a memory by appending a new version with incremented version number.
+        Retrieves current max version from DB for safety.
+        Returns True on success, False if validation fails or memory not found.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if memory exists and validate session_id
+                cursor.execute("SELECT session_id FROM memories WHERE id = ?", (memory_id,))
+                row = cursor.fetchone()
+                
+                if not row:
+                    return False
+                
+                if session_id and row[0] != session_id:
+                    return False
+                    
+                # Find current max version
+                cursor.execute("SELECT MAX(version) FROM memory_versions WHERE memory_id = ?", (memory_id,))
+                v_row = cursor.fetchone()
+                current_version = v_row[0] if v_row and v_row[0] else 0
+                new_version = current_version + 1
+                
+                cursor.execute(
+                    "INSERT INTO memory_versions (memory_id, content, version) VALUES (?, ?, ?)",
+                    (memory_id, new_content, new_version)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error editing memory: {e}")
+            return False
+
+    def retrieve_recent_memories(self, session_id: str, limit: int = 5) -> List[str]:
+        """
+        Retrieves the most recent memories for a given session.
+        Fetches only the latest version of each memory efficiently via SQL.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT mv.content
+                    FROM memory_versions mv
+                    JOIN (
+                        SELECT memory_id, MAX(version) as max_version
+                        FROM memory_versions
+                        GROUP BY memory_id
+                    ) latest ON mv.memory_id = latest.memory_id AND mv.version = latest.max_version
+                    JOIN memories m ON m.id = mv.memory_id
+                    WHERE m.session_id = ?
+                    ORDER BY m.created_at DESC
+                    LIMIT ?
+                """, (session_id, limit))
+                
+                rows = cursor.fetchall()
+                return [row[0] for row in rows]
+        except Exception as e:
+            print(f"Error retrieving memories: {e}")
+            return []
+
+    def get_daily_aggregation(self, session_id: str, memory_date: str, min_importance: int = 3) -> dict:
+        """
+        Returns a dict mapping subject to a list of memory dicts (content, importance).
+        { 'Work': [{'content': '...', 'importance': 4}], ... }
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # We need the latest versions, where importance >= threshold
+                cursor.execute("""
+                    SELECT m.subject, m.importance, mv.content
+                    FROM memory_versions mv
+                    JOIN (
+                        SELECT memory_id, MAX(version) as max_version
+                        FROM memory_versions
+                        GROUP BY memory_id
+                    ) latest ON mv.memory_id = latest.memory_id AND mv.version = latest.max_version
+                    JOIN memories m ON m.id = mv.memory_id
+                    WHERE m.session_id = ? AND m.memory_date = ? AND m.importance >= ?
+                    ORDER BY m.importance DESC, m.created_at DESC
+                """, (session_id, memory_date, min_importance))
+                
+                rows = cursor.fetchall()
+                result = {}
+                for subject, importance, content in rows:
+                    if subject not in result:
+                        result[subject] = []
+                    result[subject].append({
+                        "content": content,
+                        "importance": importance
+                    })
+                return result
+        except Exception as e:
+            print(f"Error retrieving daily aggregation: {e}")
+            return {}
