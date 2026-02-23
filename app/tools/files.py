@@ -16,10 +16,24 @@ class FilesTool:
             "tool_name": "read_file",
             "path": path,
         })
+        path_obj = Path(path)
+        
         try:
-            # Strip leading slashes so Path concatenation doesn't reset to drive root
-            clean_path = path.lstrip("/\\")
-            file_path = (self.base_dir / clean_path).resolve()
+            # Security hardening: reject paths with drive letters outright
+            if path_obj.drive:
+                tool_logger.warning({
+                    "event_type": "tool_call_blocked",
+                    "tool_name": "read_file",
+                    "path": path,
+                    "reason": "drive_letter_detected"
+                })
+                raise PermissionError("Drive-based paths not allowed.")
+                
+            # If absolute, safely convert to relative by dropping the root
+            if path_obj.is_absolute():
+                path_obj = Path(*path_obj.parts[1:])
+                
+            file_path = (self.base_dir / path_obj).resolve()
 
             if not str(file_path).startswith(str(self.base_dir)):
                 tool_logger.warning({

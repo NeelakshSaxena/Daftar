@@ -33,7 +33,7 @@ def ping() -> str:
 def read_file(path: str) -> str:
     """
     Read a file from disk, returning its contents as a string.
-    Paths are resolved relative to the server workspace directory.
+    Path must be relative to the project root. Do not include leading slashes or drive letters.
     """
     tool_logger.info({
         "event_type": "mcp_adapter_tool_call",
