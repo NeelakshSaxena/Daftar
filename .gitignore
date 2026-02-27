@@ -10,3 +10,5 @@ data/database/
 *.sqlite
 *.sqlite3
 .pytest_cache/
+*.log
+*.txt
