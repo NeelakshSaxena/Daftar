@@ -98,7 +98,7 @@ class LLMClient:
                     subject = "General"
                 
                 if not content or not subject:
-                    print(f"Memory extraction failed validation: missing content or subject in {parsed}")
+                    system_logger.warning({"event_type": "memory_extraction_validation_failed", "parsed": parsed})
                     return None
                     
                 raw_importance = parsed.get("importance", 3)
@@ -118,10 +118,10 @@ class LLMClient:
                     "importance": importance
                 }
             except json.JSONDecodeError as e:
-                print(f"Memory extraction JSON parse failed: {e}. Raw content: {cleaned_content}")
+                system_logger.error({"event_type": "memory_extraction_json_parse_failed", "error": str(e), "raw": cleaned_content}, exc_info=True)
                 return None
         except Exception as e:
-            print(f"Memory extraction failed: {e}")
+            system_logger.error({"event_type": "memory_extraction_failed", "error": str(e)}, exc_info=True)
             return None
 
     def chat(self, message: str, api_url: str | None = None, session_id: str = "default", user_id: str = "default_user", allowed_subjects: Optional[List[str]] = None) -> Tuple[str, bool]:
@@ -301,6 +301,6 @@ class LLMClient:
                         print(f"[Memory Skipped] importance={extracted_memory['importance']} normalized={normalized_importance} threshold={threshold}")
 
             except Exception as e:
-                print(f"Memory processing error: {e}")
+                system_logger.error({"event_type": "memory_processing_error", "error": str(e)}, exc_info=True)
                 
             return cleaned_content, memory_saved

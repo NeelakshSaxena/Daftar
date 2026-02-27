@@ -1,7 +1,9 @@
 import json
 import os
+from app.logger import system_logger
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config", "defaults.json")
+_default_config = os.path.join(os.path.dirname(__file__), "config", "defaults.json")
+CONFIG_PATH = os.environ.get("DAFTAR_CONFIG_PATH", _default_config)
 # Static setting, not dynamically configurable via DB yet
 MAX_CHAT_HISTORY = 20
 
@@ -19,7 +21,7 @@ def load_settings(db=None):
                 if isinstance(loaded, dict):
                     settings = loaded
         except Exception as e:
-            print(f"Error loading defaults.json: {e}")
+            system_logger.error({"event_type": "load_defaults_failed", "error": str(e)}, exc_info=True)
             
     try:
         if db is None:
@@ -30,9 +32,9 @@ def load_settings(db=None):
             try:
                 settings[k] = coerce_value(k, v)
             except Exception as e:
-                print(f"Error coercing override for {k} with value {v}: {e}. Falling back to default.")
+                system_logger.error({"event_type": "coerce_override_failed", "key": k, "value": v, "error": str(e)}, exc_info=True)
     except Exception as e:
-        print(f"Error loading settings overrides from DB: {e}")
+        system_logger.error({"event_type": "load_overrides_failed", "error": str(e)}, exc_info=True)
         
     return settings
 

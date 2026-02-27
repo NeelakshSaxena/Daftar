@@ -4,8 +4,8 @@ from typing import List, Optional
 from datetime import datetime
 from app.logger import memory_logger
 
-# Point to Daftar/data/database
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "database")
+_default_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "database")
+DB_DIR = os.environ.get("DAFTAR_DB_DIR", _default_dir)
 DB_PATH = os.path.join(DB_DIR, "memory.db")
 
 class MemoryDB:
@@ -14,9 +14,13 @@ class MemoryDB:
             self._init_db()
 
     def _get_connection(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=15.0)
         # Enable foreign key support
         conn.execute("PRAGMA foreign_keys = ON")
+        # Infrastructure Hardening: WAL mode allows concurrent readers while writing
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA busy_timeout = 15000")
         return conn
 
     def _init_db(self):
@@ -118,14 +122,24 @@ class MemoryDB:
                 cursor.execute("ALTER TABLE memories ADD COLUMN subject TEXT NOT NULL DEFAULT 'Legacy'")
                 cursor.execute("ALTER TABLE memories ADD COLUMN importance INTEGER NOT NULL DEFAULT 3")
 
-            # Post schema migration checks for v4
+            # Post schema migration checks for v5 (Lifecycle & Policy Engine)
             cursor.execute("PRAGMA table_info(memories)")
             columns = {row[1] for row in cursor.fetchall()}
-            if columns and "user_id" not in columns:
-                print("Migrating memories to v4 schema (adding user_id, access_mode)...")
-                cursor.execute("ALTER TABLE memories ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default_user'")
-                cursor.execute("ALTER TABLE memories ADD COLUMN access_mode TEXT NOT NULL DEFAULT 'private'")
+            if columns and "state" not in columns:
+                print("Migrating memories to v5 schema (adding lifecycle states)...")
+                cursor.execute("ALTER TABLE memories ADD COLUMN state TEXT NOT NULL DEFAULT 'active'")
+                cursor.execute("ALTER TABLE memories ADD COLUMN supersedes_memory_id INTEGER NULL")
+                cursor.execute("ALTER TABLE memories ADD COLUMN confidence_score REAL NOT NULL DEFAULT 1.0")
+                cursor.execute("ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT 'inferred'")
 
+            # Post schema migration checks for L7 (Concurrency)
+            if columns and "content_hash" not in columns:
+                print("Migrating memories to L7 schema (adding content_hash for deterministic locking)...")
+                cursor.execute("ALTER TABLE memories ADD COLUMN content_hash TEXT NOT NULL DEFAULT 'legacy_hash'")
+                
+            # Update existing records to avoid immediate UNIQUE constraint failure from partial migrations
+            cursor.execute("UPDATE memories SET content_hash = hex(randomblob(16)) WHERE content_hash = 'legacy_hash'")
+            
             # Check if settings_overrides exists individually to handle migrations robustly
             cursor.execute("PRAGMA table_info(settings_overrides)")
             if not cursor.fetchall():
@@ -134,6 +148,35 @@ class MemoryDB:
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL,
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            # Enforce unique active content_hash per user to stop race condition flood inserts
+            # Ensure no existing duplicates block the index creation (could happen from interrupted testing)
+            cursor.execute("""
+                UPDATE memories SET content_hash = hex(randomblob(16)) 
+                WHERE rowid NOT IN (
+                    SELECT MIN(rowid) FROM memories 
+                    WHERE state = 'active'
+                    GROUP BY user_id, content_hash
+                ) AND state = 'active'
+            """)
+            
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_active_memories_hash 
+                ON memories(user_id, content_hash) WHERE state = 'active'
+            """)
+            
+            # Rate Limiting table for governance
+            cursor.execute("PRAGMA table_info(rate_limits)")
+            if not cursor.fetchall():
+                cursor.execute("""
+                    CREATE TABLE rate_limits (
+                        user_id TEXT NOT NULL,
+                        endpoint TEXT NOT NULL,
+                        window_start INTEGER NOT NULL,
+                        request_count INTEGER NOT NULL DEFAULT 1,
+                        PRIMARY KEY (user_id, endpoint, window_start)
                     )
                 """)
 
@@ -155,31 +198,28 @@ class MemoryDB:
         
         return clause, params
 
-    def store_memory(self, session_id: str, content: str, memory_date: str, subject: str, importance: int, user_id: str = "default_user", access_mode: str = "private") -> Optional[int]:
+    def insert_memory(self, session_id: str, content: str, memory_date: str, subject: str, importance: int, 
+                      user_id: str = "default_user", access_mode: str = "private",
+                      state: str = "active", supersedes_memory_id: Optional[int] = None, 
+                      confidence_score: float = 1.0, source: str = "inferred",
+                      correlation_id: str = "none") -> Optional[int]:
         """
-        Stores a memory if it doesn't already exist for this session.
-        Returns the new memory_id if inserted, None if duplicate or error.
+        Inserts a new memory into the DB strictly (append-only).
+        Returns the new memory_id if inserted, None if error.
         """
         import time
         import hashlib
+        
+        content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
         start_time = time.time()
+        
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Check for duplicates across all active versions for this session and user
-                cursor.execute("""
-                    SELECT 1 FROM memory_versions mv
-                    JOIN memories m ON m.id = mv.memory_id
-                    WHERE m.session_id = ? AND m.user_id = ? AND mv.content = ?
-                """, (session_id, user_id, content))
-                
-                if cursor.fetchone():
-                    return None
-                
                 cursor.execute(
-                    "INSERT INTO memories (session_id, user_id, memory_date, subject, importance, access_mode) VALUES (?, ?, ?, ?, ?, ?)",
-                    (session_id, user_id, memory_date, subject, importance, access_mode)
+                    "INSERT INTO memories (session_id, user_id, memory_date, subject, importance, access_mode, state, supersedes_memory_id, confidence_score, source, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (session_id, user_id, memory_date, subject, importance, access_mode, state, supersedes_memory_id, confidence_score, source, content_hash)
                 )
                 memory_id = cursor.lastrowid
                 
@@ -190,170 +230,201 @@ class MemoryDB:
                 conn.commit()
                 
                 memory_logger.info({
-                    "event_type": "memory_added",
+                    "event_type": "state_mutation_committed",
                     "status": "success",
                     "memory_id": memory_id,
                     "session_id": session_id,
                     "user_id": user_id,
                     "subject": subject,
-                    "content_hash": hashlib.sha256(content.encode('utf-8')).hexdigest()[:8],
-                    "content_length": len(content),
-                    "importance": importance,
-                    "access_mode": access_mode,
+                    "state": state,
+                    "correlation_id": correlation_id,
+                    "content_hash": content_hash[:8],
                     "duration_ms": int((time.time() - start_time) * 1000)
                 })
                 
                 return memory_id
+        except sqlite3.IntegrityError as e:
+            # Hash uniqueness constraint caught a concurrent flood insertion
+            if "UNIQUE constraint failed" in str(e):
+                return -1 # -1 denotes DUPLICATE constraint triggered natively
+            else:
+                return None
         except Exception as e:
             memory_logger.error({
-                "event_type": "memory_add_failed",
+                "event_type": "state_mutation_failed",
                 "status": "failure",
+                "correlation_id": correlation_id,
                 "session_id": session_id,
-                "user_id": user_id,
                 "error_type": type(e).__name__,
                 "error_message": str(e)
             })
-            print(f"Error storing memory: {e}")
             return None
 
-    def edit_memory(self, memory_id: int, new_content: str, session_id: Optional[str] = None) -> bool:
+    def set_memory_state(self, memory_id: int, new_state: str) -> bool:
         """
-        Edits a memory by appending a new version with incremented version number.
-        Retrieves current max version from DB for safety.
-        Returns True on success, False if validation fails or memory not found.
+        Updates the lifecycle state of a memory safely.
+        Returns True ONLY if the update actually mutated a row (OCC check).
         """
-        import time
-        import hashlib
-        start_time = time.time()
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                
-                # Check if memory exists and validate session_id
-                cursor.execute("SELECT session_id FROM memories WHERE id = ?", (memory_id,))
-                row = cursor.fetchone()
-                
-                if not row:
-                    return False
-                
-                if session_id and row[0] != session_id:
-                    return False
-                    
-                # Find current max version
-                cursor.execute("SELECT MAX(version) FROM memory_versions WHERE memory_id = ?", (memory_id,))
-                v_row = cursor.fetchone()
-                current_version = v_row[0] if v_row and v_row[0] else 0
-                new_version = current_version + 1
-                
-                cursor.execute(
-                    "INSERT INTO memory_versions (memory_id, content, version) VALUES (?, ?, ?)",
-                    (memory_id, new_content, new_version)
-                )
+                cursor.execute("UPDATE memories SET state = ? WHERE id = ? AND state != ?", (new_state, memory_id, new_state))
                 conn.commit()
-                
-                memory_logger.info({
-                    "event_type": "memory_edited",
-                    "status": "success",
-                    "memory_id": memory_id,
-                    "session_id": session_id or "unknown",
-                    "new_version": new_version,
-                    "content_hash": hashlib.sha256(new_content.encode('utf-8')).hexdigest()[:8],
-                    "content_length": len(new_content),
-                    "duration_ms": int((time.time() - start_time) * 1000)
-                })
-                
-                return True
+                return cursor.rowcount > 0
         except Exception as e:
-            memory_logger.error({
-                "event_type": "memory_edit_failed",
-                "status": "failure",
-                "memory_id": memory_id,
-                "session_id": session_id or "unknown",
-                "error_type": type(e).__name__,
-                "error_message": str(e)
-            })
-            print(f"Error editing memory: {e}")
+            memory_logger.error({"event_type": "update_state_failed", "memory_id": memory_id, "error": str(e)}, exc_info=True)
             return False
 
-    def retrieve_recent_memories(self, session_id: str, user_id: str = "default_user", allowed_subjects: Optional[List[str]] = None, limit: int = 5) -> List[str]:
+    def get_active_memories_by_subject(self, session_id: str, user_id: str, subject: str) -> List[dict]:
         """
-        Retrieves the most recent memories for a given session.
-        Fetches only the latest version of each memory efficiently via SQL.
-        Filters based on user ownership and allowed subjects.
+        Retrieves all 'active' memories for a specific session/user/subject for Policy Engine evaluation.
         """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                
-                access_clause, access_params = self._build_access_filter(user_id, allowed_subjects)
-
-                query = f"""
-                    SELECT mv.content
-                    FROM memory_versions mv
+                query = """
+                    SELECT m.id, mv.content, m.confidence_score, m.source, m.importance
+                    FROM memories m
                     JOIN (
                         SELECT memory_id, MAX(version) as max_version
                         FROM memory_versions
                         GROUP BY memory_id
-                    ) latest ON mv.memory_id = latest.memory_id AND mv.version = latest.max_version
-                    JOIN memories m ON m.id = mv.memory_id
-                    WHERE m.session_id = ? 
-                      {access_clause}
-                    ORDER BY m.created_at DESC
-                    LIMIT ?
+                    ) latest ON m.id = latest.memory_id
+                    JOIN memory_versions mv ON mv.memory_id = latest.memory_id AND mv.version = latest.max_version
+                    WHERE m.session_id = ? AND m.user_id = ? AND m.subject = ? AND m.state = 'active'
                 """
-                params = [session_id] + access_params + [limit]
-                
-                cursor.execute(query, params)
-                
+                cursor.execute(query, (session_id, user_id, subject))
                 rows = cursor.fetchall()
-                return [row[0] for row in rows]
-        except Exception as e:
-            print(f"Error retrieving memories: {e}")
-            return []
-
-    def get_daily_aggregation(self, session_id: str, memory_date: str, user_id: str = "default_user", allowed_subjects: Optional[List[str]] = None, min_importance: int = 3) -> dict:
-        """
-        Returns a dict mapping subject to a list of memory dicts (content, importance).
-        { 'Work': [{'content': '...', 'importance': 4}], ... }
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                access_clause, access_params = self._build_access_filter(user_id, allowed_subjects)
-
-                query = f"""
-                    SELECT m.subject, m.importance, mv.content
-                    FROM memory_versions mv
-                    JOIN (
-                        SELECT memory_id, MAX(version) as max_version
-                        FROM memory_versions
-                        GROUP BY memory_id
-                    ) latest ON mv.memory_id = latest.memory_id AND mv.version = latest.max_version
-                    JOIN memories m ON m.id = mv.memory_id
-                    WHERE m.session_id = ? 
-                      AND m.memory_date = ? 
-                      AND m.importance >= ?
-                      {access_clause}
-                    ORDER BY m.importance DESC, m.created_at DESC
-                """
-                params = [session_id, memory_date, min_importance] + access_params
-                
-                cursor.execute(query, params)
-                
-                rows = cursor.fetchall()
-                result = {}
-                for subject, importance, content in rows:
-                    if subject not in result:
-                        result[subject] = []
-                    result[subject].append({
-                        "content": content,
-                        "importance": importance
+                result = []
+                for row in rows:
+                    result.append({
+                        "id": row[0],
+                        "content": row[1],
+                        "confidence_score": row[2],
+                        "source": row[3],
+                        "importance": row[4]
                     })
                 return result
         except Exception as e:
-            print(f"Error retrieving daily aggregation: {e}")
-            return {}
+            memory_logger.error({"event_type": "get_active_memories_failed", "session_id": session_id, "user_id": user_id, "subject": subject, "error": str(e)}, exc_info=True)
+            return []
+
+    def retrieve_memories(self, user_id: str, query: str = "", scope: Optional[List[str]] = None, state_filter: str = "active", limit: int = 5) -> List[dict]:
+        """
+        The unified, strictly deterministic retrieval contract.
+        - user_id: Is strictly required. No cross-user joins.
+        - state_filter: Determines which lifecycle state to query.
+        - scope: List of allowed subjects.
+        - limit: Maximum results to return.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # We enforce access control here. Notice there are no shared memories in Phase L6 
+                # unless explicitly joined. For now, strict segregation based on user_id.
+                
+                if scope is None:
+                    scope = ["*"]
+                    
+                allow_all_scope = '*' in scope
+                placeholders = ','.join('?' * len(scope)) or "''"
+                
+                # Deterministic ranking mapped to SQL
+                # Priority: manual (3) > imported (2) > inferred (1)
+                
+                sql = f"""
+                    SELECT m.id, m.session_id, m.subject, mv.content, m.confidence_score, m.source, m.created_at, m.state
+                    FROM memories m
+                    JOIN (
+                        SELECT memory_id, MAX(version) as max_version
+                        FROM memory_versions
+                        GROUP BY memory_id
+                    ) latest ON m.id = latest.memory_id
+                    JOIN memory_versions mv ON mv.memory_id = latest.memory_id AND mv.version = latest.max_version
+                    WHERE m.user_id = ? 
+                      AND m.state = ?
+                      AND (? OR m.subject IN ({placeholders}))
+                """
+                
+                params = [user_id, state_filter, allow_all_scope] + scope
+                
+                if query:
+                    # Basic keyword LIKE search for v1 (to be replaced by vectors later)
+                    sql += " AND mv.content LIKE ?"
+                    params.append(f"%{query}%")
+                
+                # Deterministic Order By
+                sql += """
+                    ORDER BY 
+                        CASE m.source 
+                            WHEN 'manual' THEN 3 
+                            WHEN 'imported' THEN 2 
+                            WHEN 'inferred' THEN 1 
+                            ELSE 0 
+                        END DESC,
+                        m.confidence_score DESC,
+                        m.created_at DESC,
+                        m.id DESC
+                    LIMIT ?
+                """
+                params.append(limit)
+                
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+                
+                results = []
+                for row in rows:
+                    results.append({
+                        "id": row[0],
+                        "session_id": row[1],
+                        "subject": row[2],
+                        "content": row[3],
+                        "confidence_score": row[4],
+                        "source": row[5],
+                        "created_at": row[6],
+                        "state": row[7]
+                    })
+                    
+                return results
+                
+        except Exception as e:
+            memory_logger.error({"event_type": "deterministic_retrieval_failed", "user_id": user_id, "error": str(e)}, exc_info=True)
+            return []
+            
+    def check_rate_limit(self, user_id: str, endpoint: str, max_requests: int, window_seconds: int = 60) -> bool:
+        """
+        Checks if the user has exceeded the rate limit for an endpoint.
+        Returns True if allowed, False if rejected.
+        """
+        import time
+        current_time = int(time.time())
+        window_start = current_time - (current_time % window_seconds)
+        
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Cleanup old windows
+                cursor.execute("DELETE FROM rate_limits WHERE window_start < ?", (current_time - window_seconds,))
+                
+                cursor.execute("""
+                    INSERT INTO rate_limits (user_id, endpoint, window_start, request_count)
+                    VALUES (?, ?, ?, 1)
+                    ON CONFLICT(user_id, endpoint, window_start) 
+                    DO UPDATE SET request_count = request_count + 1
+                    RETURNING request_count
+                """, (user_id, endpoint, window_start))
+                
+                count = cursor.fetchone()[0]
+                conn.commit()
+                
+                return count <= max_requests
+        except Exception as e:
+            memory_logger.error({"event_type": "rate_limit_check_failed", "user_id": user_id, "endpoint": endpoint, "error": str(e)}, exc_info=True)
+            # Fail closed or open? For infrastructure, fail-open generally unless strictly security. 
+            # We'll fail-open locally but log it.
+            return True
 
     def get_all_overrides(self) -> dict:
         """
@@ -366,7 +437,7 @@ class MemoryDB:
                 rows = cursor.fetchall()
                 return {row[0]: row[1] for row in rows}
         except Exception as e:
-            print(f"Error retrieving settings overrides: {e}")
+            memory_logger.error({"event_type": "get_overrides_failed", "error": str(e)}, exc_info=True)
             return {}
 
     def set_setting_override(self, key: str, value: str) -> bool:
@@ -386,6 +457,6 @@ class MemoryDB:
                 conn.commit()
                 return True
         except Exception as e:
-            print(f"Error setting override for {key}: {e}")
+            memory_logger.error({"event_type": "set_override_failed", "key": key, "error": str(e)}, exc_info=True)
             return False
 

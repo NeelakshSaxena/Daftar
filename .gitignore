@@ -5,3 +5,8 @@ __pycache__/
 .DS_Store
 logs/
 workspace/
+data/database/
+*.db
+*.sqlite
+*.sqlite3
+.pytest_cache/
