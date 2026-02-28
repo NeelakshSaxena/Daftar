@@ -14,14 +14,12 @@ db = MemoryDB()
 def index():
     return jsonify({
         "status": "online",
-        "message": "Welcome to the Daftar Memory Engine. Please navigate to /memories?user_id=YOUR_USER_ID to view your active memories."
+        "message": "Welcome to the Daftar Memory Engine. Please navigate to /memories?user_id=default_user to view your active memories."
     })
 
 @app.route("/memories", methods=["GET"])
 def get_memories():
-    user_id = request.args.get("user_id")
-    if not user_id:
-        return jsonify({"error": "user_id required"}), 400
+    user_id = request.args.get("user_id", "default_user")
 
     memories = db.retrieve_memories(
         user_id=user_id,
