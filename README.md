@@ -174,6 +174,19 @@ Other specific stress tests are available in the `scripts/` directory:
 
 ---
 
-## 📜 License
+## � Releases
+
+You can find the latest stable versions of Daftar in the [Releases](https://github.com/NeelakshSaxena/Daftar/releases) section of this repository.
+
+Each release includes:
+- **Source Code**: ZIP and TAR.GZ archives of the codebase.
+- **Changelog**: Detailed notes on new features, bug fixes, and improvements.
+
+To get started with a specific release, simply download the source code from the latest release page and follow the Installation instructions.
+
+---
+
+## �📜 License
 *Daftar is strictly maintained as an internal project.*
+
 
