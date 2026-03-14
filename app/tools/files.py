@@ -19,7 +19,6 @@ class FilesTool:
         path_obj = Path(path)
         
         try:
-            # Security hardening: reject paths with drive letters outright
             if path_obj.drive:
                 tool_logger.warning({
                     "event_type": "tool_call_blocked",
@@ -29,7 +28,6 @@ class FilesTool:
                 })
                 raise PermissionError("Drive-based paths not allowed.")
                 
-            # If absolute, safely convert to relative by dropping the root
             if path_obj.is_absolute():
                 path_obj = Path(*path_obj.parts[1:])
                 
@@ -75,7 +73,6 @@ class FilesTool:
             try:
                 content = file_path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
-                # Fallback for common Windows encodings (e.g. utf-16le BOM)
                 tool_logger.info({
                     "event_type": "tool_call_retry_encoding",
                     "tool_name": "read_file",
@@ -109,4 +106,126 @@ class FilesTool:
                 "error": type(e).__name__,
                 "message": str(e)
             })
+            return f"Error: {str(e)}"
+
+
+    # ---------------------------------------------------------
+    # NEW TOOLS BELOW (DO NOT MODIFY EXISTING BEHAVIOR)
+    # ---------------------------------------------------------
+
+    def _resolve_safe_path(self, path: str) -> Path:
+        path_obj = Path(path)
+
+        if path_obj.drive:
+            raise PermissionError("Drive-based paths not allowed.")
+
+        if path_obj.is_absolute():
+            path_obj = Path(*path_obj.parts[1:])
+
+        resolved = (self.base_dir / path_obj).resolve()
+
+        if not str(resolved).startswith(str(self.base_dir)):
+            raise PermissionError("Path traversal outside workspace denied.")
+
+        return resolved
+
+
+    def write_file(self, path: str, content: str, overwrite: bool = True) -> str:
+        """Create or overwrite a file."""
+
+        try:
+            file_path = self._resolve_safe_path(path)
+
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if file_path.exists() and not overwrite:
+                raise FileExistsError("File exists and overwrite disabled.")
+
+            file_path.write_text(content, encoding="utf-8")
+
+            return f"File written successfully: {path}"
+
+        except Exception as e:
+            tool_logger.error({
+                "event_type": "tool_call_error",
+                "tool_name": "write_file",
+                "path": path,
+                "error": type(e).__name__,
+                "message": str(e)
+            })
+
+            return f"Error: {str(e)}"
+
+
+    def list_files(self, path: str = ".", recursive: bool = False) -> list:
+
+        try:
+            dir_path = self._resolve_safe_path(path)
+
+            results = []
+
+            iterator = dir_path.rglob("*") if recursive else dir_path.iterdir()
+
+            for item in iterator:
+                results.append(str(item.relative_to(self.base_dir)))
+
+            return results
+
+        except Exception as e:
+            return [f"Error: {str(e)}"]
+
+
+    def search_files(self, query: str, path: str = ".", limit: int = 20) -> list:
+
+        try:
+            root = self._resolve_safe_path(path)
+
+            results = []
+
+            for file_path in root.rglob("*"):
+
+                if not file_path.is_file():
+                    continue
+
+                try:
+                    text = file_path.read_text(encoding="utf-8")
+                except:
+                    continue
+
+                for i, line in enumerate(text.splitlines(), start=1):
+
+                    if query.lower() in line.lower():
+
+                        results.append({
+                            "file": str(file_path.relative_to(self.base_dir)),
+                            "line": i,
+                            "text": line.strip()
+                        })
+
+                        if len(results) >= limit:
+                            return results
+
+            return results
+
+        except Exception as e:
+            return [{"error": str(e)}]
+
+
+    def patch_file(self, path: str, find: str, replace: str) -> str:
+
+        try:
+            file_path = self._resolve_safe_path(path)
+
+            content = file_path.read_text(encoding="utf-8")
+
+            if find not in content:
+                return "Patch failed: target text not found."
+
+            new_content = content.replace(find, replace, 1)
+
+            file_path.write_text(new_content, encoding="utf-8")
+
+            return "Patch applied successfully."
+
+        except Exception as e:
             return f"Error: {str(e)}"

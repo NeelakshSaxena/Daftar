@@ -98,6 +98,30 @@ def retrieve_memory(query: str = "", scope: list[str] = None, state_filter: str 
         user_id="default_user"  # Strict isolation required by contract
     )
 
+@mcp.tool()
+def write_file(path: str, content: str, overwrite: bool = True) -> str:
+    tool_logger.info({
+        "event_type": "mcp_adapter_tool_call",
+        "tool_name": "write_file",
+        "path": path
+    })
+    return files_tool.write_file(path, content, overwrite)
+
+
+@mcp.tool()
+def list_files(path: str = ".", recursive: bool = False) -> list:
+    return files_tool.list_files(path, recursive)
+
+
+@mcp.tool()
+def search_files(query: str, path: str = ".", limit: int = 20) -> list:
+    return files_tool.search_files(query, path, limit)
+
+
+@mcp.tool()
+def patch_file(path: str, find: str, replace: str) -> str:
+    return files_tool.patch_file(path, find, replace)
+
 if __name__ == "__main__":
     # Verify backend dependencies load correctly
     # We already initialized MemoryDB globally, so it's ready.
