@@ -5,22 +5,50 @@
 ![Flask](https://img.shields.io/badge/Flask-Web%20UI-lightgrey)
 ![MCP](https://img.shields.io/badge/Protocol-MCP-purple)
 
-**Daftar** (meaning *Office* or *Register*) is a production-grade, multi-tenant memory engine and Local Model Context Protocol (MCP) server. It equips Large Language Models (LLMs) with the ability to persistently store, recall, and elegantly manage user facts, preferences, and long-term context across multiple conversational sessions. 
+**Daftar** (meaning *Office* or *Register*) is a production-grade **Local AI Context & Tool Engine** built around the Model Context Protocol (MCP).
 
-Built with rigorous access controls, concurrency-safe SQLite-based storage, and a seamless FastMCP adapter, Daftar is designed to act as the long-term contextual brain for AI applications and local clients like LM Studio.
+It acts as the persistent operational layer for Large Language Models, providing structured memory, filesystem access, and controlled tool execution so local AI systems can maintain context, manipulate files, and safely interact with long-running environments.
+
+Instead of being just a memory store, **Daftar functions as a lightweight agent runtime** — enabling LLMs to persist knowledge, retrieve relevant information, and interact with their workspace through a secure, extensible tool layer.
+
+Built with concurrency-safe SQLite storage, hardened filesystem policies, and a seamless FastMCP adapter, Daftar is designed to serve as the **long-term contextual brain and tool interface for local AI applications** such as LM Studio, local assistants, and autonomous agent systems.
 
 ---
 
 ## ✨ Key Features
 
-- **🧠 Persistent Memory:** Store and retrieve memories explicitly using `store_memory` and `retrieve_memory` core tools.
-- **🔌 Model Context Protocol (MCP):** Out-of-the-box support for the MCP standard, making it instantly compatible with tools like LM Studio and Claude Desktop.
-- **🔒 Multi-Tenant & Secure:** Strict `user_id` separation and attribute-based access controls based on subjects (e.g., Work, Health).
-- **🕸️ Independent Web UI:** A lightweight Flask application running separately to provide a read-only, human-friendly view of active memories.
-- **⚡ FastAPI Assistant Backend:** A scalable HTTP endpoint for chat inference and admin-level setting overrides.
-- **🛡️ Robust Path Resolution & Policies:** Hardened tools to prevent path traversal and ensure semantic memory integrity.
+- **🧠 Persistent Context Memory**  
+  Store and retrieve long-term user context using `store_memory` and `retrieve_memory`.
 
----
+- **📂 Workspace File System Tools**  
+  Allow models to interact with project files through secure MCP tools such as:
+  - `read_file`
+  - `write_file`
+  - `list_files`
+  - `search_files`
+  - `patch_file`
+
+- **🔌 Model Context Protocol (MCP)**  
+  Native support for the MCP standard, making Daftar instantly compatible with clients like **LM Studio** and other MCP-enabled AI environments.
+
+- **🧰 Extensible Tool Layer**  
+  Provides a structured interface for AI tools including filesystem access, memory storage, and utility functions like `get_current_time`.
+
+- **🔒 Multi-Tenant & Secure**  
+  Strict `user_id` separation and attribute-based access control across memory subjects (e.g., Work, Health, Preferences).
+
+- **🕸️ Independent Web UI**  
+  A lightweight Flask application providing a **read-only memory viewer** for inspecting stored memories.
+
+- **⚡ FastAPI Assistant Backend**  
+  A scalable API layer for chat inference, admin control, and external integrations.
+
+- **🛡️ Hardened Filesystem & Access Policies**  
+  Secure path resolution prevents directory traversal and ensures LLMs can only operate inside the designated workspace.
+
+- **⚙️ Local Agent Runtime**  
+  Designed to act as the **tool execution layer for local AI assistants**, enabling them to reason, act, and persist context across sessions.
+
 
 ## 🏛️ Architecture & Data Flow
 
