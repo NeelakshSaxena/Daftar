@@ -26,25 +26,31 @@ Built with rigorous access controls, concurrency-safe SQLite-based storage, and 
 
 ```mermaid
 graph TD
-    Client([User / LLM Client])
-    LMStudio([LM Studio / MCP Client])
+    Client["User / LLM Client"]
+    LMStudio["LM Studio / MCP Client"]
     
     subgraph Daftar Engine
         direction TB
         
         subgraph Interfaces
-            MCP_Adapter[🔌 mcp_adapter.py<br>FastMCP Server]
-            FastAPI[⚡ app/main.py<br>FastAPI Chat/Admin]
-            WebUI[🕸️ app/web.py<br>Flask Memory Viewer]
+            MCP_Adapter["mcp_adapter.py<br/>FastMCP Server"]
+            FastAPI["app/main.py<br/>FastAPI Chat/Admin"]
+            WebUI["app/web.py<br/>Flask Memory Viewer"]
         end
         
         subgraph Core Logic
-            LLMClient[LLM Inference Client<br>app/llm_client.py]
-            Tools[⚙️ Memory & File Tools<br>app/tools/]
+            LLMClient["LLM Inference Client<br/>app/llm_client.py"]
+            
+            subgraph Tool Layer
+                FileTools["Filesystem Tools<br/>read_file<br/>write_file<br/>list_files<br/>search_files<br/>patch_file"]
+                MemoryTools["Memory Tools<br/>store_memory<br/>retrieve_memory"]
+                UtilityTools["Utility Tools<br/>get_current_time"]
+            end
         end
         
         subgraph Storage
-            DB[(🗄️ MemoryDB<br>SQLite)]
+            DB[("MemoryDB<br/>SQLite")]
+            Workspace[("Workspace Filesystem")]
         end
         
         %% Flow connections
@@ -52,21 +58,28 @@ graph TD
         Client <-->|REST API| FastAPI
         Client -.->|View Memories| WebUI
         
-        MCP_Adapter -->|Tool Calls| Tools
-        FastAPI -->|Chat/Extract| LLMClient
-        LLMClient -->|Tool Calls| Tools
+        MCP_Adapter -->|Tool Calls| FileTools
+        MCP_Adapter -->|Tool Calls| MemoryTools
+        MCP_Adapter -->|Tool Calls| UtilityTools
         
-        Tools <--> DB
+        FastAPI -->|Chat / Extract| LLMClient
+        LLMClient -->|Tool Calls| FileTools
+        LLMClient -->|Tool Calls| MemoryTools
+        
+        FileTools <--> Workspace
+        MemoryTools <--> DB
+        
         WebUI -->|Read Only| DB
     end
-    
+
     classDef interface fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000;
     classDef logic fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,color:#000;
     classDef storage fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000;
-    
+
     class MCP_Adapter,FastAPI,WebUI interface;
-    class LLMClient,Tools logic;
-    class DB storage;
+    class LLMClient,FileTools,MemoryTools,UtilityTools logic;
+    class DB,Workspace storage;
+
 ```
 
 ---
