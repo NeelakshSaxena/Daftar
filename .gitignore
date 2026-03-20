@@ -13,3 +13,4 @@ data/database/
 *.log
 *.txt
 speech/models/
+*.bin
