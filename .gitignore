@@ -12,4 +12,4 @@ data/database/
 .pytest_cache/
 *.log
 *.txt
-speech/models/*
+speech/models/
