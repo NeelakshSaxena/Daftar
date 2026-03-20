@@ -5,3 +5,15 @@ openai
 pydantic
 mcp>=0.1.0
 flask
+
+# for whisper
+sounddevice 
+numpy 
+customtkinter
+tqdm
+sounddevice
+optimum
+
+# huggingface
+huggingface_hub
+transformers 
